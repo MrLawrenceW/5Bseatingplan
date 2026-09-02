@@ -89,11 +89,30 @@
     .seat { width: 140px; min-height: 76px; }
     .card { box-shadow: none; }
   }
+
+  .overlay {
+    display: none; position: fixed; inset: 0; background: rgba(20,30,45,.55);
+    align-items: center; justify-content: center; z-index: 100;
+  }
+  .overlay.show { display: flex; }
+  .modal {
+    background: #fff; border-radius: 12px; padding: 22px 26px; max-width: 520px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.25);
+  }
+  .modal h2 { margin: 0 0 10px; font-size: 17px; }
+  .modal ol { margin: 8px 0 14px; padding-left: 22px; line-height: 1.7; font-size: 14px; }
+  .modal a { color: #1f6feb; }
+  .modal .bigbtn {
+    display: inline-block; margin: 6px 6px 0 0; padding: 9px 16px;
+    background: #1f6feb; color: #fff; text-decoration: none; border-radius: 6px;
+    border: none; font-size: 14px; cursor: pointer;
+  }
+  .modal .bigbtn.gray { background: #e4e9ef; color: #333; }
 </style>
 </head>
 <body>
 <h1>5B Seating Plan Editor</h1>
-<div class="sub">Drag cards between seats &bull; or click a card, then click a seat &bull; changes auto-save on this device &bull; press <b>Save</b> to share with everyone</div>
+<div class="sub">Drag cards between seats &bull; or click a card, then click a seat &bull; press <b>Save</b> and drop the downloaded file on the GitHub page to publish for everyone</div>
 <div class="toolbar">
   <button class="primary" onclick="savePlan()">Save</button>
   <button onclick="randomize()">Random</button>
@@ -112,6 +131,21 @@
 <div class="tray">
   <h2>Unassigned / Spare</h2>
   <div id="tray" class="seats"></div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h2>Share this plan with the class (3 steps, ~15 seconds)</h2>
+    <ol>
+      <li>A file <b>layout.json</b> was downloaded (or will download) - it holds this seating plan.</li>
+      <li>Open <a href="https://github.com/MrLawrenceW/5Bseatingplan/upload/main" target="_blank" rel="noopener">github.com/MrLawrenceW/5Bseatingplan &rarr; Add file &rarr; Upload files</a>.</li>
+      <li>Drag the <b>layout.json</b> file onto that page, then press the green <b>Commit changes</b> button.</li>
+    </ol>
+    <p style="font-size:13px;color:#666;margin:0 0 12px">When it asks "Do you want to replace the existing file?" choose <b>Yes</b>. Students will see the new plan about 1 minute after you commit.</p>
+    <button class="bigbtn" onclick="doDownloadLayout()">Download layout.json</button>
+    <a class="bigbtn" href="https://github.com/MrLawrenceW/5Bseatingplan/upload/main" target="_blank" rel="noopener">Go to upload page</a>
+    <button class="bigbtn gray" onclick="closeOverlay()">Done</button>
+  </div>
 </div>
 
 <script>
@@ -517,18 +551,28 @@ function b64encode(str) {
   return btoa(unescape(encodeURIComponent(str)));
 }
 
+function doDownloadLayout() {
+  download('layout.json', JSON.stringify(layout), 'application/json');
+  const el = document.getElementById('status');
+  el.textContent = 'layout.json downloaded - now upload it to the website (see the box)';
+}
+
+function showOverlay() {
+  document.getElementById('overlay').classList.add('show');
+}
+
+function closeOverlay() {
+  document.getElementById('overlay').classList.remove('show');
+}
+
 async function savePlan() {
   const el = document.getElementById('status');
   save();
-  let token = localStorage.getItem(TOKEN_KEY);
+  const token = localStorage.getItem(TOKEN_KEY);
   if (!token) {
-    token = prompt('Enter your GitHub Personal Access Token (fine-grained, only this repo, Contents: Read and write). It stays in this browser only.');
-    if (!token) {
-      el.textContent = 'Save cancelled - no GitHub token entered';
-      setTimeout(updateStatus, 3000);
-      return;
-    }
-    localStorage.setItem(TOKEN_KEY, token);
+    doDownloadLayout();
+    showOverlay();
+    return;
   }
   el.textContent = 'Saving & sharing...';
   try {
@@ -559,8 +603,10 @@ async function savePlan() {
     el.textContent = 'Saved & shared at ' + new Date().toLocaleTimeString() + ' - others will see it when they open/refresh the page';
     setTimeout(updateStatus, 5000);
   } catch (err) {
-    el.textContent = 'Save failed: ' + err.message + ' (kept on this device)';
-    setTimeout(updateStatus, 7000);
+    el.textContent = 'Auto-save failed: ' + err.message;
+    setTimeout(updateStatus, 4000);
+    doDownloadLayout();
+    showOverlay();
   }
 }
 
