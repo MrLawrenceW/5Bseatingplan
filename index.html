@@ -93,7 +93,7 @@
 </head>
 <body>
 <h1>5B Seating Plan Editor</h1>
-<div class="sub">Drag cards between seats &bull; or click a card, then click a seat &bull; changes are saved automatically</div>
+<div class="sub">Drag cards between seats &bull; or click a card, then click a seat &bull; changes auto-save on this device &bull; press <b>Save</b> to share with everyone</div>
 <div class="toolbar">
   <button class="primary" onclick="savePlan()">Save</button>
   <button onclick="randomize()">Random</button>
@@ -153,6 +153,8 @@ const DEFAULT_LAYOUT = [
 ];
 
 const ROWS = 4, SEATS = 8, KEY = '5b-seating-plan-v1';
+const GH = { owner: 'MrLawrenceW', repo: '5Bseatingplan', branch: 'main', file: 'layout.json' };
+const TOKEN_KEY = '5b-gh-token';
 const studentByNum = Object.fromEntries(ROSTER.map(s => [s.num, s]));
 let layout = JSON.parse(JSON.stringify(DEFAULT_LAYOUT));
 let selected = null;
@@ -160,6 +162,11 @@ let selected = null;
 function deepClone(l) { return l.map(r => r.slice()); }
 function usedNums() { return layout.flat().filter(n => n !== null); }
 function unassigned() { return ROSTER.map(s => s.num).filter(n => !usedNums().includes(n)); }
+function validLayout(l) {
+  return Array.isArray(l) && l.length === ROWS &&
+    l.every(r => Array.isArray(r) && r.length === SEATS &&
+      r.every(v => v === null || !!studentByNum[v]));
+}
 
 function render() {
   const rowsEl = document.getElementById('rows');
@@ -498,11 +505,63 @@ function exportWord() {
   download('5B Seating Plan.docx', buildZip(files), 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 }
 
-function savePlan() {
-  save();
+function fetchRemoteLayout() {
+  const url = 'https://raw.githubusercontent.com/' + GH.owner + '/' + GH.repo + '/' + GH.branch + '/' + GH.file + '?cb=' + Date.now();
+  return fetch(url, { cache: 'no-store' })
+    .then(res => res.ok ? res.json() : null)
+    .then(data => validLayout(data) ? data : null)
+    .catch(() => null);
+}
+
+function b64encode(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+
+async function savePlan() {
   const el = document.getElementById('status');
-  el.textContent = 'Saved at ' + new Date().toLocaleTimeString();
-  setTimeout(() => updateStatus(), 2500);
+  save();
+  let token = localStorage.getItem(TOKEN_KEY);
+  if (!token) {
+    token = prompt('Enter your GitHub Personal Access Token (fine-grained, only this repo, Contents: Read and write). It stays in this browser only.');
+    if (!token) {
+      el.textContent = 'Save cancelled - no GitHub token entered';
+      setTimeout(updateStatus, 3000);
+      return;
+    }
+    localStorage.setItem(TOKEN_KEY, token);
+  }
+  el.textContent = 'Saving & sharing...';
+  try {
+    const api = 'https://api.github.com/repos/' + GH.owner + '/' + GH.repo + '/contents/' + GH.file;
+    const headers = { Authorization: 'token ' + token, Accept: 'application/vnd.github+json' };
+    const getRes = await fetch(api, { headers });
+    let sha = null;
+    if (getRes.status === 200) {
+      const info = await getRes.json();
+      sha = info.sha;
+    } else if (getRes.status === 404) {
+      sha = null;
+    } else {
+      const info = await getRes.json().catch(() => ({}));
+      throw new Error(info.message || ('GitHub error ' + getRes.status));
+    }
+    const body = { message: 'Update seating plan', content: b64encode(JSON.stringify(layout)) };
+    if (sha) body.sha = sha;
+    const putRes = await fetch(api, {
+      method: 'PUT',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, headers),
+      body: JSON.stringify(body)
+    });
+    if (!putRes.ok) {
+      const info = await putRes.json().catch(() => ({}));
+      throw new Error(info.message || ('GitHub error ' + putRes.status));
+    }
+    el.textContent = 'Saved & shared at ' + new Date().toLocaleTimeString() + ' - others will see it when they open/refresh the page';
+    setTimeout(updateStatus, 5000);
+  } catch (err) {
+    el.textContent = 'Save failed: ' + err.message + ' (kept on this device)';
+    setTimeout(updateStatus, 7000);
+  }
 }
 
 function download(filename, content, mime) {
@@ -516,11 +575,19 @@ function download(filename, content, mime) {
   URL.revokeObjectURL(a.href);
 }
 
-try {
-  const saved = JSON.parse(localStorage.getItem(KEY));
-  if (saved && Array.isArray(saved) && saved.length === ROWS &&
-      saved.every(r => Array.isArray(r) && r.length === SEATS)) layout = saved;
-} catch (e) {}
+(async function init() {
+  const remote = await fetchRemoteLayout();
+  if (remote) {
+    layout = remote;
+    save();
+  } else {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY));
+      if (validLayout(saved)) layout = saved;
+    } catch (e) {}
+  }
+  render();
+})();
 
 document.addEventListener('click', e => {
   if (!e.target.closest('.card') && !e.target.closest('.seat')) {
@@ -529,9 +596,6 @@ document.addEventListener('click', e => {
   }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { selected = null; render(); } });
-
-render();
 </script>
 </body>
 </html>
-
