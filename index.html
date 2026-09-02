@@ -605,6 +605,9 @@ async function savePlan() {
   } catch (err) {
     el.textContent = 'Auto-save failed: ' + err.message;
     setTimeout(updateStatus, 4000);
+    if (/bad.credentials|401|invalid|not found/i.test(err.message)) {
+      localStorage.removeItem(TOKEN_KEY);
+    }
     doDownloadLayout();
     showOverlay();
   }
